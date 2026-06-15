@@ -1,0 +1,29 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function signedIn() {
+      return request.auth != null;
+    }
+    function isAdminEmail() {
+      return signedIn() && request.auth.token.email in [
+        'admin@moar.com',
+        'host@moar.com',
+        'admin@moar.demo'
+      ];
+    }
+
+    match /profilePhotos/{uid}/{fileName} {
+      allow read: if signedIn();
+      allow write: if signedIn() && request.auth.uid == uid && request.resource.size < 5 * 1024 * 1024;
+    }
+
+    match /contracts/{allPaths=**} {
+      allow read: if signedIn();
+      allow write: if isAdminEmail() && request.resource.size < 10 * 1024 * 1024;
+    }
+
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

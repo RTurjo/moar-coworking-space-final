@@ -1,0 +1,80 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    // IMPORTANT: Replace these emails with your real host/admin emails before deployment.
+    function isAdminEmail() {
+      return signedIn() && request.auth.token.email in [
+        'admin@moar.com',
+        'host@moar.com',
+        'admin@moar.demo'
+      ];
+    }
+
+    function isAdmin() {
+      return signedIn() && (
+        isAdminEmail() ||
+        exists(/databases/$(database)/documents/profiles/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/profiles/$(request.auth.uid)).data.role in ['admin', 'host']
+      );
+    }
+
+    function memberEmail(memberId) {
+      return get(/databases/$(database)/documents/members/$(memberId)).data.email;
+    }
+
+    match /profiles/{userId} {
+      allow read: if signedIn() && (request.auth.uid == userId || isAdmin());
+      allow create: if signedIn() && request.auth.uid == userId && (
+        request.resource.data.role == 'member' ||
+        (request.resource.data.role in ['admin', 'host'] && isAdminEmail())
+      );
+      allow update: if isAdmin() || (signedIn() && request.auth.uid == userId && request.resource.data.role == resource.data.role && request.resource.data.email == resource.data.email);
+      allow delete: if isAdmin();
+    }
+
+    match /branches/{branchId} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+
+    match /members/{memberId} {
+      allow read: if isAdmin() || (signedIn() && resource.data.email == request.auth.token.email);
+      allow create, delete: if isAdmin();
+      allow update: if isAdmin() || (
+        signedIn() && resource.data.email == request.auth.token.email &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['profilePhotoUrl', 'updatedAt'])
+      );
+    }
+
+    match /desks/{deskId} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+
+    match /bills/{billId} {
+      allow read: if isAdmin() || (signedIn() && memberEmail(resource.data.memberId) == request.auth.token.email);
+      allow write: if isAdmin();
+    }
+
+    match /bookings/{bookingId} {
+      allow read: if isAdmin() || (signedIn() && memberEmail(resource.data.memberId) == request.auth.token.email);
+      allow write: if isAdmin();
+    }
+
+    match /content/{contentId} {
+      allow read: if signedIn() && (resource.data.status == 'Published' || isAdmin());
+      allow write: if isAdmin();
+    }
+
+    match /attendanceLogs/{logId} {
+      allow read: if isAdmin() || (signedIn() && memberEmail(resource.data.memberId) == request.auth.token.email);
+      allow create: if isAdmin() || (signedIn() && memberEmail(request.resource.data.memberId) == request.auth.token.email);
+      allow update: if isAdmin() || (signedIn() && memberEmail(resource.data.memberId) == request.auth.token.email);
+      allow delete: if isAdmin();
+    }
+  }
+}
